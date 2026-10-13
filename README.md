@@ -1,60 +1,95 @@
-# Pochoco SoC & Espino Core
+# Proyecto 2 - Juego de reflejos en assembly sobre Pochoco SoC
 
-> Meet Pochoco SoC and Espino Core. Inspired by the native flora of the Pochoco trails, it is an entry-level, highly efficient architecture designed to flourish in resource-constrained environments.
+Arquitectura de Computadores 2026-2, Universidad de los Andes.
 
-![Pochoco SoC Architecture](pochoco_soc.svg)
+Juego de reflejos para la Nandland Go Board (iCE40 HX1K) corriendo en el Espino Core.
+El programa (`sw/game.s`) se traduce a `sw/game.hex` con un assembler hecho por nosotros
+(`assembler/asm.py`), sin usar el toolchain de RISC-V.
 
-Welcome to the repository! This project contains the RTL for a custom 32-bit processor and its surrounding System-on-Chip (SoC) designed for FPGA deployment. The design is kept straightforward to help explore and understand computer architecture fundamentals.
+Basado en el repositorio [pochoco_soc](https://github.com/nic0villegasc/pochoco_soc).
 
-This is meant to be forked, not just cloned. You'll be poking around the RTL, so make it your own, we won't judge (we might even be a little proud).
+## Como se juega
 
-## Repository Structure
+1. Al programar la placa el display queda en `00`. Apretar cualquier boton para empezar.
+2. En cada ronda se prenden los 4 LEDs por 3 segundos.
+3. Despues queda prendido un solo LED (elegido al azar). Hay que apretar el boton de ese LED.
+4. El display muestra el tiempo de respuesta en decimas de segundo (ej: `07` = 0,7 s; maximo `99`).
+5. Si se aprieta un boton incorrecto aparece `EE` y se repite la ronda (las rondas buenas se mantienen).
+6. Despues de 10 aciertos el display muestra el promedio y los LEDs parpadean.
+   Apretando un boton empieza otra partida.
 
-The hardware is written in Verilog and divided into these main categories:
+## Estructura
 
-* **The Espino Core**: The central processing unit. It includes all standard pipeline stages like instruction fetch, instruction decode, an ALU for execution, a register file, a load/store unit for memory operations, and a pipeline controller. It implements [RV32E](https://docs.riscv.org/reference/isa/v20260120/unpriv/rv32.html) with a catch you might want to check out the code for.
-* **The Pochoco SoC**: The top-level system wrapper. It connects the CPU core to a unified instruction/data RAM, physical board peripherals (like LEDs, switches, and displays), and an external SPI slave interface.
-* **Build Files**: Constraints to map the design to the physical FPGA pins, and automation scripts for synthesis, routing, and flashing using an open-source toolchain.
+```
+rtl/game_top.v          top que se sintetiza, instancia el SoC con sw/game.hex
+rtl/pochoco_periph.v    se le agrego el contador de ciclos (offset 0x0C)
+sw/game.s               el juego en assembly
+sw/game.hex             salida del assembler (lo que se carga en la RAM)
+assembler/asm.py        assembler
+assembler/test_asm.py   pruebas del assembler
+sim/tb_game.v           testbench del juego completo
+sim/sb_ram40_4k_sim.v   modelo de la BRAM de lattice para poder simular
+```
 
-## Memory Map
+## Regenerar game.hex
 
-The SoC routes memory and data requests using a hardcoded address decoding scheme based on the highest bits of the 32-bit address.
+```
+python assembler/asm.py sw/game.s -o sw/game.hex
+```
 
-* **`0x0000_0000` - Unified RAM**: The shared memory space for both instructions and data.
-* **`0x8000_0000` - Board Peripherals**: Memory-mapped I/O for the physical board.
-  * `Offset 0x00`: 7-Segment Displays
-  * `Offset 0x04`: LEDs
-  * `Offset 0x08`: Button Inputs
-* **`0x8001_0000` - SPI Slave**: Custom SPI interface routing.
-  * `Offset 0x00`: SPI Status (Chip Select state, New Data flag)
-  * `Offset 0x04`: Received "Price" byte (from external master)
-  * `Offset 0x08`: "Decision" byte (written by CPU to transmit)
+Con `-l` muestra el listado (direccion, codigo maquina e instruccion).
+Con `-D` se puede cambiar una constante sin editar el archivo, por ejemplo
+3 segundos -> 5 segundos:
 
-Dive into the source code to see exactly how these components and connections are built under the hood!
+```
+python assembler/asm.py sw/game.s -o sw/game.hex -D CICLOS_3S=125000000
+```
 
-## How to Build
+## Sintetizar y programar la placa
 
-To synthesize and build the project, you will need the open-source FPGA toolchain.
+Linux / Mac (con oss-cad-suite activado):
 
-1. Install the tools by following the instructions at the [oss-cad-suite-build repository](https://github.com/yosyshq/oss-cad-suite-build).
-2. Once installed, ~~blindly copy-paste~~ (we strongly encourage reading the Makefile first to make sure we aren't deleting your home directory) the following command in the project root to generate and program the final bitstream:
-
-```bash
+```
 make all
 ```
 
-## Software
+Esto genera el hex, sintetiza (yosys), hace place & route (nextpnr), genera el bitstream (icepack)
+y programa la placa (iceprog). En Linux se puede usar `make all PYTHON=python3`.
 
-The `sw/` folder holds the RV32E assembly example programs that run on the Espino Core (`blink.s`, `7seg.s`, `buttons_leds.s`), plus a `Makefile` to assemble them into the `.hex` files the RTL loads at boot via `$readmemh`.
+Windows (desde la terminal de oss-cad-suite, en la carpeta del repo):
 
-You'll need a RISC-V toolchain on your `PATH` (`riscv64-unknown-elf-{as,ld,objcopy}` on Debian/Ubuntu/WSL via `sudo apt install gcc-riscv64-unknown-elf`, or `brew install riscv64-unknown-elf-gcc` on macOS). If your toolchain uses a different prefix, override it on the command line rather than editing the Makefile:
-
-```bash
-cd sw
-make blink                        # assembles blink.s -> blink.hex
-make PREFIX=riscv64-elf- blink    # if your toolchain uses a different prefix
+```
+build.bat
 ```
 
-Drop a new `<name>.s` file in `sw/` and `make <name>` picks it up automatically, no `Makefile` changes needed. Don't forget to change the MemFile in pochoco_soc.v.
+Los comandos que corre son:
 
-**CATCH:** The core implements [RV32E](https://docs.riscv.org/reference/isa/v20260120/unpriv/rv32.html), with one thing worth knowing: shift instructions (`SLL`/`SRL`/`SRA`/`SLLI`/`SRLI`/`SRAI`) are decoded correctly but disabled in the ALU to save LUTs on the target FPGA, so they currently execute as `ADD` instead. Avoid shifts in your assembly, or design your own shifter...
+```
+python assembler/asm.py sw/game.s -o sw/game.hex
+yosys -p "read_verilog <archivos de rtl>; synth_ice40 -top game_top -json game_top.json"
+nextpnr-ice40 --hx1k --package vq100 --json game_top.json --pcf goboard.pcf --asc game_top.asc
+icepack game_top.asc game_top.bin
+iceprog game_top.bin
+```
+
+## Simulacion y pruebas
+
+```
+make sim        (windows: build.bat sim)
+make test       (o: cd assembler && python test_asm.py)
+```
+
+La simulacion arma una version del juego con tiempos cortos (3000 ciclos en vez de 3 s, etc.)
+y el testbench juega dos partidas: revisa la fase de 3 s, cada tiempo mostrado, un boton equivocado,
+el promedio y el parpadeo final. Las ondas quedan en `game.vcd` (se abren con `gtkwave game.vcd`).
+
+## Datos de temporizacion
+
+| Constante        | Ciclos      | Tiempo                         |
+|------------------|-------------|--------------------------------|
+| Reloj            | 25.000.000/s| 1 ciclo = 40 ns                |
+| CICLOS_3S        | 75.000.000  | 3 s con los 4 LEDs             |
+| CICLOS_DECIMA    | 2.500.000   | 0,1 s (unidad del display)     |
+| CICLOS_ERROR     | 25.000.000  | 1 s mostrando EE               |
+| CICLOS_REBOTE    | 500.000     | 20 ms de antirrebote           |
+| CICLOS_PARPADEO  | 6.250.000   | 0,25 s entre parpadeos         |

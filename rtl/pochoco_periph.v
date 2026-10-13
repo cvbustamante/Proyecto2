@@ -26,6 +26,14 @@ module pochoco_periph (
   wire [5:0] off    = addr_i[7:2];
   wire       access = sel_i & req_i;
 
+  // contador de ciclos libre, sube 1 en cada flanco del reloj (25 MHz)
+  // el programa lo lee en el offset 0x0C para medir tiempos
+  reg [31:0] cyc_q;
+  always @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) cyc_q <= 32'b0;
+    else         cyc_q <= cyc_q + 32'd1;
+  end
+
   // LEDs and raw digit registers
   reg [3:0]  led_q;
   reg [7:0]  digit_q;
@@ -80,6 +88,7 @@ module pochoco_periph (
     else if (access & ~we_i) begin
       case (off)
         6'd2: rdata_o <= {28'b0, btn_i}; // Buttons
+        6'd3: rdata_o <= cyc_q;          // contador de ciclos (0x0C)
         default: rdata_o <= 32'b0;
       endcase
     end

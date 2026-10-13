@@ -20,3 +20,8 @@ module_stats/
 sim/sim
 *.vcd
 *.csv
+
+# Proyecto 2
+build/
+sim/sim.out
+sim/game_sim.hex
